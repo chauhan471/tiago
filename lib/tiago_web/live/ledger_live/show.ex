@@ -54,13 +54,13 @@ defmodule TiagoWeb.LedgerLive.Show do
             </thead>
             <tbody class="divide-y divide-gray-200">
               <%= for e <- @ledger.entries do %>
-                <tr class="hover:bg-gray-50">
+                <tr class={if e.is_opening, do: "bg-yellow-50 font-medium", else: "hover:bg-gray-50"}>
                   <td class="px-4 py-3 text-sm"><%= fmt_date(e.date) %></td>
-                  <td class="px-4 py-3 text-sm"><%= e.description %></td>
+                  <td class={"px-4 py-3 text-sm #{if e.is_opening, do: "italic"}"}><%= e.description %></td>
                   <td class="px-4 py-3 text-sm text-gray-500"><%= e.reference_number || "—" %></td>
                   <td class="px-4 py-3 text-sm text-right font-mono"><%= if Money.positive?(e.debit), do: fmt_money(e.debit) %></td>
                   <td class="px-4 py-3 text-sm text-right font-mono"><%= if Money.positive?(e.credit), do: fmt_money(e.credit) %></td>
-                  <td class="px-4 py-3 text-sm text-right font-mono font-medium"><%= fmt_money(e.balance) %></td>
+                  <td class="px-4 py-3 text-sm text-right font-mono font-semibold"><%= fmt_money(e.balance) %></td>
                 </tr>
               <% end %>
             </tbody>
