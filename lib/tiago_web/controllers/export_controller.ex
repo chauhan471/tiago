@@ -7,15 +7,29 @@ defmodule TiagoWeb.ExportController do
   def party_ledger_csv(conn, %{"id" => id}) do
     ledger = Ledger.party_ledger(String.to_integer(id))
     header = "Date,Description,Reference,Debit,Credit,Balance\r\n"
-    rows = Enum.map_join(ledger.entries, "\r\n", fn e ->
-      [fmt_date(e.date), ~s("#{e.description}"), e.reference_number || "", fmt_amount(e.debit), fmt_amount(e.credit), fmt_amount(e.balance)]
-      |> Enum.join(",")
-    end)
-    totals = "\r\n\"Totals\",,,#{fmt_amount(ledger.total_debit)},#{fmt_amount(ledger.total_credit)},#{fmt_amount(ledger.closing_balance)}"
+
+    rows =
+      Enum.map_join(ledger.entries, "\r\n", fn e ->
+        [
+          fmt_date(e.date),
+          ~s("#{e.description}"),
+          e.reference_number || "",
+          fmt_amount(e.debit),
+          fmt_amount(e.credit),
+          fmt_amount(e.balance)
+        ]
+        |> Enum.join(",")
+      end)
+
+    totals =
+      "\r\n\"Totals\",,,#{fmt_amount(ledger.total_debit)},#{fmt_amount(ledger.total_credit)},#{fmt_amount(ledger.closing_balance)}"
 
     conn
     |> put_resp_content_type("text/csv")
-    |> put_resp_header("content-disposition", ~s(attachment; filename="#{ledger.party.name}_ledger.csv"))
+    |> put_resp_header(
+      "content-disposition",
+      ~s(attachment; filename="#{ledger.party.name}_ledger.csv")
+    )
     |> send_resp(200, header <> rows <> totals)
   end
 
@@ -24,14 +38,35 @@ defmodule TiagoWeb.ExportController do
     org = if org_id, do: Organizations.get_organization!(org_id), else: nil
     ledger = Ledger.party_ledger(String.to_integer(id))
     html = build_pdf_html(ledger, org)
-    case PdfGenerator.generate(html, page_size: "A4", shell_params: ["--orientation", "Portrait", "--margin-top", "15", "--margin-bottom", "10", "--margin-left", "12", "--margin-right", "12"]) do
+
+    case PdfGenerator.generate(html,
+           page_size: "A4",
+           shell_params: [
+             "--orientation",
+             "Portrait",
+             "--margin-top",
+             "15",
+             "--margin-bottom",
+             "10",
+             "--margin-left",
+             "12",
+             "--margin-right",
+             "12"
+           ]
+         ) do
       {:ok, pdf_path} ->
         conn
         |> put_resp_content_type("application/pdf")
-        |> put_resp_header("content-disposition", ~s(attachment; filename="#{ledger.party.name}_ledger.pdf"))
+        |> put_resp_header(
+          "content-disposition",
+          ~s(attachment; filename="#{ledger.party.name}_ledger.pdf")
+        )
         |> send_file(200, pdf_path)
+
       {:error, reason} ->
-        conn |> put_flash(:error, "PDF failed: #{inspect(reason)}") |> redirect(to: ~p"/parties/#{id}/ledger")
+        conn
+        |> put_flash(:error, "PDF failed: #{inspect(reason)}")
+        |> redirect(to: ~p"/parties/#{id}/ledger")
     end
   end
 
@@ -42,26 +77,29 @@ defmodule TiagoWeb.ExportController do
     party_type_label = if party.type == :customer, do: "Customer", else: "Supplier"
     today = Calendar.strftime(Date.utc_today(), "%d-%m-%Y")
 
-    rows = ledger.entries
-    |> Enum.with_index(1)
-    |> Enum.map_join("", fn {e, idx} ->
-      bg = if rem(idx, 2) == 0, do: "background:#f0f0f0;", else: ""
-      debit_val = if Money.positive?(e.debit), do: fmt_amount(e.debit), else: ""
-      credit_val = if Money.positive?(e.credit), do: fmt_amount(e.credit), else: ""
-      """
-      <tr style="#{bg}">
-        <td class="c">#{idx}</td>
-        <td>#{fmt_date(e.date)}</td>
-        <td>#{e.description}</td>
-        <td>#{e.reference_number || ""}</td>
-        <td class="r mono">#{debit_val}</td>
-        <td class="r mono">#{credit_val}</td>
-        <td class="r mono b">#{fmt_amount(e.balance)}</td>
-      </tr>
-      """
-    end)
+    rows =
+      ledger.entries
+      |> Enum.with_index(1)
+      |> Enum.map_join("", fn {e, idx} ->
+        bg = if rem(idx, 2) == 0, do: "background:#f0f0f0;", else: ""
+        debit_val = if Money.positive?(e.debit), do: fmt_amount(e.debit), else: ""
+        credit_val = if Money.positive?(e.credit), do: fmt_amount(e.credit), else: ""
 
-    gstn_line = if org_gstn, do: "<div style='font-size:10px;color:#555'>GSTN: #{org_gstn}</div>", else: ""
+        """
+        <tr style="#{bg}">
+          <td class="c">#{idx}</td>
+          <td>#{fmt_date(e.date)}</td>
+          <td>#{e.description}</td>
+          <td>#{e.reference_number || ""}</td>
+          <td class="r mono">#{debit_val}</td>
+          <td class="r mono">#{credit_val}</td>
+          <td class="r mono b">#{fmt_amount(e.balance)}</td>
+        </tr>
+        """
+      end)
+
+    gstn_line =
+      if org_gstn, do: "<div style='font-size:10px;color:#555'>GSTN: #{org_gstn}</div>", else: ""
 
     """
     <!DOCTYPE html>
@@ -144,7 +182,6 @@ defmodule TiagoWeb.ExportController do
 
       <div class="footer">
         This is a computer-generated document.
-        <span class="right">Tiago</span>
       </div>
 
     </body>
