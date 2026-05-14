@@ -42,11 +42,11 @@ defmodule Tiago.Import.GstrParser do
       inum = invoice["inum"]
 
       Accounting.create_journal(org_id,
-        %{date: date, description: "Sales Invoice #{inum}", reference_type: :invoice, reference_number: inum, party_id: party.id},
+        %{date: date, party_id: party.id},
         [
-          %{account_id: receivable.id, entry_type: :debit, amount: total_value, description: "Sales #{inum}"},
-          %{account_id: sales.id, entry_type: :credit, amount: taxable_value, description: "Revenue #{inum}"},
-          %{account_id: gst_output.id, entry_type: :credit, amount: total_gst, description: "GST Output #{inum}"}
+          %{account_id: receivable.id, entry_type: :debit, amount: total_value, description: "Sales #{inum}", transaction_type: :invoice, reference_number: inum},
+          %{account_id: sales.id, entry_type: :credit, amount: taxable_value, description: "Revenue #{inum}", transaction_type: :invoice, reference_number: inum},
+          %{account_id: gst_output.id, entry_type: :credit, amount: total_gst, description: "GST Output #{inum}", transaction_type: :invoice, reference_number: inum}
         ]
       )
     else
@@ -61,11 +61,11 @@ defmodule Tiago.Import.GstrParser do
       inum = invoice["inum"]
 
       Accounting.create_journal(org_id,
-        %{date: date, description: "Purchase Invoice #{inum}", reference_type: :invoice, reference_number: inum, party_id: party.id},
+        %{date: date, party_id: party.id},
         [
-          %{account_id: purchases.id, entry_type: :debit, amount: taxable_value, description: "Purchase #{inum}"},
-          %{account_id: gst_input.id, entry_type: :debit, amount: total_gst, description: "GST Input #{inum}"},
-          %{account_id: payable.id, entry_type: :credit, amount: total_value, description: "Payable #{inum}"}
+          %{account_id: purchases.id, entry_type: :debit, amount: taxable_value, description: "Purchase #{inum}", transaction_type: :invoice, reference_number: inum},
+          %{account_id: gst_input.id, entry_type: :debit, amount: total_gst, description: "GST Input #{inum}", transaction_type: :invoice, reference_number: inum},
+          %{account_id: payable.id, entry_type: :credit, amount: total_value, description: "Payable #{inum}", transaction_type: :invoice, reference_number: inum}
         ]
       )
     else
@@ -74,11 +74,11 @@ defmodule Tiago.Import.GstrParser do
   end
 
   defp calculate_tax_from_items(items) do
-    Enum.reduce(items, {Money.new!(:INR, 0), Money.new!(:INR, 0)}, fn item, {txval_acc, gst_acc} ->
+    Enum.reduce(items, {to_money(0), to_money(0)}, fn item, {txval_acc, gst_acc} ->
       det = Map.get(item, "itm_det", %{})
       txval = get_num(det, "txval", 0)
       tax = get_num(det, "iamt", 0) + get_num(det, "camt", 0) + get_num(det, "samt", 0)
-      {Money.add!(txval_acc, Money.new!(:INR, to_string(txval))), Money.add!(gst_acc, Money.new!(:INR, to_string(tax)))}
+      {Money.add!(txval_acc, to_money(txval)), Money.add!(gst_acc, to_money(tax))}
     end)
   end
 
@@ -89,8 +89,11 @@ defmodule Tiago.Import.GstrParser do
     end
   end
 
-  defp parse_money(v) when is_number(v), do: {:ok, Money.new!(:INR, to_string(v))}
+  defp parse_money(v) when is_number(v), do: {:ok, to_money(v)}
   defp parse_money(_), do: {:error, "invalid amount"}
+
+  defp to_money(v) when is_float(v), do: Money.new!(:INR, Decimal.from_float(v) |> Decimal.round(2))
+  defp to_money(v) when is_integer(v), do: Money.new!(:INR, Decimal.new(v))
 
   defp ensure_account!(org_id, sub_type) do
     case Accounting.get_account_by_sub_type(org_id, sub_type) do

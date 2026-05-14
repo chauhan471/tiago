@@ -18,10 +18,15 @@ defmodule Tiago.Ledger do
       |> preload(:entries)
       |> Repo.all()
 
-    target_sub_type = if party.type == :customer, do: :receivable, else: :payable
+    target_sub_types =
+      case party.type do
+        :customer -> [:receivable]
+        :supplier -> [:payable]
+        :both_customer_and_supplier -> [:receivable, :payable]
+      end
 
     # Calculate opening balance from entries before the date filter
-    opening_balance = compute_opening_balance(party_id, target_sub_type, Keyword.get(opts, :date_from))
+    opening_balance = compute_opening_balance(party_id, target_sub_types, Keyword.get(opts, :date_from))
 
     opening_row = %{
       date: Keyword.get(opts, :date_from) || List.first(journals, %{date: Date.utc_today()}) |> Map.get(:date),
@@ -34,11 +39,13 @@ defmodule Tiago.Ledger do
 
     {entries, _} =
       Enum.reduce(journals, {[], opening_balance}, fn journal, {acc, balance} ->
-        {debit, credit} = compute_debit_credit(journal.entries, target_sub_type)
+        {debit, credit} = compute_debit_credit(journal.entries, target_sub_types)
         new_balance = balance |> Money.add!(debit) |> Money.sub!(credit)
+        first_entry = List.first(journal.entries) || %{}
+        
         entry = %{
-          date: journal.date, description: journal.description,
-          reference_type: journal.reference_type, reference_number: journal.reference_number,
+          date: journal.date, description: Map.get(first_entry, :description, "—"),
+          reference_type: Map.get(first_entry, :transaction_type, "—"), reference_number: Map.get(first_entry, :reference_number, "—"),
           journal_id: journal.id, debit: debit, credit: credit, balance: new_balance,
           is_opening: false
         }
@@ -57,10 +64,10 @@ defmodule Tiago.Ledger do
     }
   end
 
-  defp compute_debit_credit(entries, target_sub_type) do
+  defp compute_debit_credit(entries, target_sub_types) do
     Enum.reduce(entries, {Money.new!(:INR, 0), Money.new!(:INR, 0)}, fn entry, {d, c} ->
       account = Tiago.Accounting.get_account!(entry.account_id)
-      if account.sub_type == target_sub_type do
+      if account.sub_type in target_sub_types do
         case entry.entry_type do
           :debit -> {Money.add!(d, entry.amount), c}
           :credit -> {d, Money.add!(c, entry.amount)}
@@ -72,10 +79,10 @@ defmodule Tiago.Ledger do
   end
 
   # When no date_from filter, opening balance is always 0 (showing full history)
-  defp compute_opening_balance(_party_id, _target_sub_type, nil), do: Money.new!(:INR, 0)
+  defp compute_opening_balance(_party_id, _target_sub_types, nil), do: Money.new!(:INR, 0)
 
   # When date_from filter is set, sum all entries before that date
-  defp compute_opening_balance(party_id, target_sub_type, date_from) do
+  defp compute_opening_balance(party_id, target_sub_types, date_from) do
     journals =
       Journal
       |> where([j], j.party_id == ^party_id and j.date < ^date_from)
@@ -84,7 +91,7 @@ defmodule Tiago.Ledger do
       |> Repo.all()
 
     Enum.reduce(journals, Money.new!(:INR, 0), fn journal, balance ->
-      {debit, credit} = compute_debit_credit(journal.entries, target_sub_type)
+      {debit, credit} = compute_debit_credit(journal.entries, target_sub_types)
       balance |> Money.add!(debit) |> Money.sub!(credit)
     end)
   end

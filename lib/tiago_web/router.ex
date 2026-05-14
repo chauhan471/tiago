@@ -64,6 +64,7 @@ defmodule TiagoWeb.Router do
     live "/dashboard", DashboardLive, :index
     live "/parties", PartyLive.Index, :index
     live "/parties/new", PartyLive.Index, :new
+    live "/parties/:id/edit", PartyLive.Index, :edit
     live "/parties/:id", PartyLive.Show, :show
     live "/parties/:id/ledger", LedgerLive.Show, :show
     live "/uploads", UploadLive.Index, :index

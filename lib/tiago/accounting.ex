@@ -64,11 +64,21 @@ defmodule Tiago.Accounting do
       Ecto.Multi.new()
       |> Ecto.Multi.insert(:journal, Journal.changeset(%Journal{}, journal_attrs))
       |> Ecto.Multi.run(:entries, fn _repo, %{journal: journal} ->
-        inserted = Enum.map(entries, fn attrs ->
-          attrs = Map.put(attrs, :journal_id, journal.id)
-          %JournalEntry{} |> JournalEntry.changeset(attrs) |> Repo.insert!()
+        result = Enum.reduce_while(entries, {:ok, []}, fn attrs, {:ok, acc} ->
+          attrs = attrs
+            |> Map.put(:journal_id, journal.id)
+            |> Map.put_new(:date, journal.date)
+          
+          case %JournalEntry{} |> JournalEntry.changeset(attrs) |> Repo.insert() do
+            {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
+            {:error, changeset} -> {:halt, {:error, changeset}}
+          end
         end)
-        {:ok, inserted}
+        
+        case result do
+          {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
+          {:error, changeset} -> {:error, changeset}
+        end
       end)
       |> Ecto.Multi.run(:update_balances, fn _repo, %{entries: entries} ->
         update_account_balances(entries)

@@ -44,9 +44,6 @@ defmodule Tiago.Repo.Migrations.CreateAccountingTables do
       add :organization_id, references(:organizations, on_delete: :delete_all), null: false
       add :party_id, references(:parties, on_delete: :nilify_all)
       add :date, :date, null: false
-      add :description, :string
-      add :reference_type, :string
-      add :reference_number, :string
       timestamps(type: :utc_datetime)
     end
 
@@ -60,12 +57,23 @@ defmodule Tiago.Repo.Migrations.CreateAccountingTables do
       add :account_id, references(:accounts, on_delete: :restrict), null: false
       add :entry_type, :string, null: false
       add :amount, :money_with_currency, null: false
+      add :date, :date, null: false
       add :description, :string
+      add :transaction_type, :string
+      add :reference_number, :string
       timestamps(type: :utc_datetime)
     end
 
     create index(:journal_entries, [:journal_id])
     create index(:journal_entries, [:account_id])
+    
+    create unique_index(:journal_entries, [:account_id, :date, :amount, :reference_number], 
+      where: "transaction_type IN ('invoice', 'credit_note', 'debit_note') AND reference_number IS NOT NULL", 
+      name: :journal_entries_unique_invoice_idx)
+      
+    create unique_index(:journal_entries, [:account_id, :date, :amount, :description, "coalesce(reference_number, '')"], 
+      where: "transaction_type = 'payment' AND description IS NOT NULL", 
+      name: :journal_entries_unique_payment_idx)
 
     # Shared Ledger Links
     create table(:shared_ledger_links) do

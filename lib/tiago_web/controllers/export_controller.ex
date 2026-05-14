@@ -74,7 +74,7 @@ defmodule TiagoWeb.ExportController do
     org_name = if org, do: org.name, else: "Tiago"
     org_gstn = if org && org.gstn, do: org.gstn, else: nil
     party = ledger.party
-    party_type_label = if party.type == :customer, do: "Customer", else: "Supplier"
+    party_type_label = TiagoWeb.Helpers.party_type_label(party.type)
     today = Calendar.strftime(Date.utc_today(), "%d-%m-%Y")
 
     rows =

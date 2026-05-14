@@ -13,4 +13,16 @@ defmodule TiagoWeb.Helpers do
   @doc "Formats Money amount only (no ₹ symbol), for PDF rows."
   def fmt_amount(%Money{} = m), do: to_string(m.amount)
   def fmt_amount(_), do: "0.00"
+
+  @doc "Returns formatted label for party type."
+  def party_type_label(:customer), do: "Customer"
+  def party_type_label(:supplier), do: "Supplier"
+  def party_type_label(:both_customer_and_supplier), do: "Customer & Supplier"
+  def party_type_label(_), do: "Party"
+
+  @doc "Returns Tailwind classes for party type badges."
+  def party_type_badge_class(:customer), do: "bg-blue-100 text-blue-800"
+  def party_type_badge_class(:supplier), do: "bg-green-100 text-green-800"
+  def party_type_badge_class(:both_customer_and_supplier), do: "bg-purple-100 text-purple-800"
+  def party_type_badge_class(_), do: "bg-gray-100 text-gray-800"
 end

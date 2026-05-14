@@ -9,7 +9,7 @@ defmodule Tiago.Parties do
     Party
     |> where([p], p.organization_id == ^org_id)
     |> apply_filters(opts)
-    |> order_by([p], asc: p.name)
+    |> order_by([p], desc: p.id)
     |> preload(:party_gstns)
     |> Repo.all()
   end
@@ -27,6 +27,12 @@ defmodule Tiago.Parties do
     |> Repo.insert()
   end
 
+  def update_party(%Party{} = party, attrs) do
+    party
+    |> Party.changeset(attrs)
+    |> Repo.update()
+  end
+
   def delete_party(%Party{} = party), do: Repo.delete(party)
 
   def add_gstn_to_party(party_id, gstn) do
@@ -35,12 +41,21 @@ defmodule Tiago.Parties do
     |> Repo.insert()
   end
 
+  def get_party_gstn!(id), do: Repo.get!(PartyGstn, id)
+
+  def update_party_gstn(%PartyGstn{} = party_gstn, attrs) do
+    party_gstn
+    |> PartyGstn.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_party_gstn(%PartyGstn{} = party_gstn), do: Repo.delete(party_gstn)
+
   def find_party_by_gstn(org_id, gstn) do
-    from(pg in PartyGstn,
-      join: p in assoc(pg, :party),
+    from(p in Party,
+      join: pg in assoc(p, :party_gstns),
       where: pg.gstn == ^gstn and p.organization_id == ^org_id,
-      select: p,
-      preload: :party_gstns
+      preload: [party_gstns: pg]
     )
     |> Repo.one()
   end

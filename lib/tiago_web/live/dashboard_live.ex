@@ -8,8 +8,8 @@ defmodule TiagoWeb.DashboardLive do
   def mount(_params, _session, socket) do
     org_id = socket.assigns.current_org.id
     parties = Parties.list_parties(org_id)
-    customers = Enum.count(parties, &(&1.type == :customer))
-    suppliers = Enum.count(parties, &(&1.type == :supplier))
+    customers = Enum.count(parties, &(&1.type in [:customer, :both_customer_and_supplier]))
+    suppliers = Enum.count(parties, &(&1.type in [:supplier, :both_customer_and_supplier]))
     journals = Accounting.list_journals(org_id) |> Enum.take(10)
 
     {:ok,
@@ -62,9 +62,10 @@ defmodule TiagoWeb.DashboardLive do
             <tbody class="divide-y divide-gray-200">
               <%= for j <- @recent_journals do %>
                 <tr class="hover:bg-gray-50">
+                  <% entry = List.first(j.entries) || %{} %>
                   <td class="px-6 py-4 text-sm"><%= fmt_date(j.date) %></td>
-                  <td class="px-6 py-4 text-sm"><%= j.description %></td>
-                  <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded-full bg-gray-100"><%= j.reference_type %></span></td>
+                  <td class="px-6 py-4 text-sm"><%= Map.get(entry, :description, "—") %></td>
+                  <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded-full bg-gray-100"><%= Map.get(entry, :transaction_type, "—") %></span></td>
                   <td class="px-6 py-4 text-sm text-gray-500"><%= if j.party, do: j.party.name, else: "—" %></td>
                 </tr>
               <% end %>

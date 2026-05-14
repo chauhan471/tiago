@@ -1,10 +1,10 @@
 defmodule Tiago.Parties.Party do
-  @moduledoc "Schema for a business party (customer or supplier), scoped to organization."
+  @moduledoc "Schema for a business party (customer, supplier, or both), scoped to organization."
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  @party_types [:customer, :supplier]
+  @party_types [:customer, :supplier, :both_customer_and_supplier]
 
   schema "parties" do
     field :name, :string

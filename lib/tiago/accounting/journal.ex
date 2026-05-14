@@ -8,9 +8,6 @@ defmodule Tiago.Accounting.Journal do
 
   schema "journals" do
     field :date, :date
-    field :description, :string
-    field :reference_type, Ecto.Enum, values: @reference_types
-    field :reference_number, :string
 
     belongs_to :organization, Tiago.Organizations.Organization
     belongs_to :party, Tiago.Parties.Party
@@ -21,8 +18,8 @@ defmodule Tiago.Accounting.Journal do
 
   def changeset(journal, attrs) do
     journal
-    |> cast(attrs, [:date, :description, :reference_type, :reference_number, :party_id, :organization_id])
-    |> validate_required([:date, :description, :organization_id])
+    |> cast(attrs, [:date, :party_id, :organization_id])
+    |> validate_required([:date, :organization_id])
     |> foreign_key_constraint(:party_id)
     |> foreign_key_constraint(:organization_id)
   end
