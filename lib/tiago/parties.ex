@@ -23,7 +23,7 @@ defmodule Tiago.Parties do
 
   def create_party(org_id, attrs) do
     %Party{}
-    |> Party.changeset(Map.put(attrs, :organization_id, org_id))
+    |> Party.changeset(Map.put(attrs, "organization_id", org_id))
     |> Repo.insert()
   end
 
