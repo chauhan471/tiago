@@ -87,4 +87,41 @@ defmodule Tiago.Parties do
     )
     |> Repo.all()
   end
+
+  def merge_parties(source_id, target_id, org_id) do
+    if to_string(source_id) == to_string(target_id) do
+      {:error, "Cannot merge a party into itself."}
+    else
+      source = get_party!(source_id)
+      target = get_party!(target_id)
+
+      if source.organization_id != org_id or target.organization_id != org_id do
+        {:error, "Both parties must belong to your organization."}
+      else
+        Repo.transaction(fn ->
+          # Dynamically introspect all tables with foreign keys to parties.id
+          query = """
+          SELECT tc.table_name, kcu.column_name
+          FROM information_schema.table_constraints AS tc
+          JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+          JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+          WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'parties' AND ccu.column_name = 'id'
+          """
+          
+          {:ok, %{rows: tables_to_update}} = Ecto.Adapters.SQL.query(Repo, query, [])
+          
+          # Move all related records to the target party
+          Enum.each(tables_to_update, fn [table, column] ->
+            # Warning: Table and column names from information_schema are safe, but still we quote them.
+            update_sql = "UPDATE \"#{table}\" SET \"#{column}\" = $1 WHERE \"#{column}\" = $2"
+            {:ok, _} = Ecto.Adapters.SQL.query(Repo, update_sql, [target.id, source.id])
+          end)
+
+          # Finally, delete the source party
+          Repo.delete!(source)
+          target
+        end)
+      end
+    end
+  end
 end

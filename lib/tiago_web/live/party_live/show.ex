@@ -6,7 +6,7 @@ defmodule TiagoWeb.PartyLive.Show do
 
   def mount(%{"id" => id}, _session, socket) do
     party = Parties.get_party!(id)
-    {:ok, assign(socket, page_title: party.name, party: party, editing_gstn: nil)}
+    {:ok, assign(socket, page_title: party.name, party: party, editing_gstn: nil, merging: false)}
   end
 
   def handle_event("edit_gstn", %{"id" => id}, socket) do
@@ -47,6 +47,28 @@ defmodule TiagoWeb.PartyLive.Show do
     end
   end
 
+  def handle_event("start_merge", _, socket) do
+    other_parties = Parties.list_parties(socket.assigns.current_org.id) |> Enum.reject(& &1.id == socket.assigns.party.id)
+    {:noreply, assign(socket, merging: true, other_parties: other_parties)}
+  end
+
+  def handle_event("cancel_merge", _, socket) do
+    {:noreply, assign(socket, merging: false)}
+  end
+
+  def handle_event("merge_party", %{"target_id" => target_id}, socket) do
+    case Parties.merge_parties(socket.assigns.party.id, target_id, socket.assigns.current_org.id) do
+      {:ok, target} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Party merged successfully!")
+         |> push_navigate(to: ~p"/parties/#{target.id}")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
   def render(assigns) do
     ~H"""
     <div class="max-w-4xl mx-auto px-4 py-8">
@@ -61,14 +83,38 @@ defmodule TiagoWeb.PartyLive.Show do
               {party_type_label(@party.type)}
             </span>
           </div>
-          <.link
-            navigate={~p"/parties/#{@party.id}/ledger"}
-            class="bg-green-600 text-white rounded-lg px-4 py-2 font-medium hover:bg-green-700"
-          >
-            View Ledger →
-          </.link>
+          <div class="flex items-center gap-3">
+            <button phx-click="start_merge" class="text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-50">
+              Merge...
+            </button>
+            <.link
+              navigate={~p"/parties/#{@party.id}/ledger"}
+              class="bg-green-600 text-white rounded-lg px-4 py-2 font-medium hover:bg-green-700"
+            >
+              View Ledger →
+            </.link>
+          </div>
         </div>
       </div>
+      
+      <%= if @merging do %>
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 shadow-sm">
+          <h3 class="text-yellow-800 font-semibold mb-2 text-lg">Merge Party</h3>
+          <p class="text-sm text-yellow-700 mb-4">Select the target party to merge all GSTNs, bank statements, and journal entries into. <strong>This party ({@party.name}) will be permanently deleted.</strong></p>
+          <form phx-submit="merge_party" class="flex flex-col sm:flex-row sm:items-center gap-4">
+            <select name="target_id" required class="rounded-lg border-gray-300 text-sm flex-1 max-w-md">
+              <option value="">-- Select Target Party --</option>
+              <%= for p <- @other_parties do %>
+                <option value={p.id}><%= p.name %></option>
+              <% end %>
+            </select>
+            <div class="flex items-center gap-3">
+              <button type="button" phx-click="cancel_merge" class="text-sm text-gray-600 font-medium hover:text-gray-900 px-3 py-2">Cancel</button>
+              <button type="submit" data-confirm="Are you absolutely sure you want to merge these parties? This action cannot be undone." class="bg-yellow-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-yellow-700 shadow-sm">Merge Now</button>
+            </div>
+          </form>
+        </div>
+      <% end %>
       <div class="bg-white shadow rounded-lg p-6">
         <h2 class="text-lg font-semibold mb-4">GSTN Numbers</h2>
         <%= for g <- @party.party_gstns do %>
