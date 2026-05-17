@@ -24,6 +24,10 @@ defmodule Tiago.Organizations do
     Repo.transaction(fn ->
       with {:ok, org} <- %Organization{} |> Organization.changeset(attrs) |> Repo.insert(),
            {:ok, _membership} <- create_membership(creator_user_id, org.id, :admin) do
+        
+        # Automatically set up the default internal ledger accounts (bank, sales, purchases, etc.)
+        Tiago.Accounting.setup_default_accounts(org.id)
+        
         org
       else
         {:error, changeset} -> Repo.rollback(changeset)
