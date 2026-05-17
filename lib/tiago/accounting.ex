@@ -59,6 +59,12 @@ defmodule Tiago.Accounting do
     |> Repo.insert()
   end
 
+  def update_account(%Account{} = account, attrs) do
+    account
+    |> Account.changeset(attrs)
+    |> Repo.update()
+  end
+
   # ── Journal + Entries ──
 
   def create_journal(org_id, journal_attrs, entries) when is_list(entries) do
