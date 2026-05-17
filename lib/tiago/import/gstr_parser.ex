@@ -49,6 +49,9 @@ defmodule Tiago.Import.GstrParser do
       {taxable_value, total_gst} = calculate_tax_from_items(Map.get(invoice, "itms", []))
       inum = invoice["inum"]
 
+      desc = "Sales Invoice #{inum}"
+      ref = "INV-#{inum}"
+
       Accounting.create_journal(
         org_id,
         %{date: date, party_id: party.id},
@@ -57,25 +60,25 @@ defmodule Tiago.Import.GstrParser do
             account_id: receivable.id,
             entry_type: :debit,
             amount: total_value,
-            description: "Sales #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           },
           %{
             account_id: sales.id,
             entry_type: :credit,
             amount: taxable_value,
-            description: "Revenue #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           },
           %{
             account_id: gst_output.id,
             entry_type: :credit,
             amount: total_gst,
-            description: "GST Output #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           }
         ]
       )
@@ -103,6 +106,9 @@ defmodule Tiago.Import.GstrParser do
       
       inum = invoice["inum"]
 
+      desc = "Purchase Invoice #{inum}"
+      ref = "INV-#{inum}"
+
       Accounting.create_journal(
         org_id,
         %{date: date, party_id: party.id},
@@ -111,25 +117,25 @@ defmodule Tiago.Import.GstrParser do
             account_id: purchases.id,
             entry_type: :debit,
             amount: taxable_value,
-            description: "Purchase #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           },
           %{
             account_id: gst_input.id,
             entry_type: :debit,
             amount: total_gst,
-            description: "GST Input #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           },
           %{
             account_id: payable.id,
             entry_type: :credit,
             amount: total_value,
-            description: "Payable #{inum}",
+            description: desc,
             transaction_type: :invoice,
-            reference_number: inum
+            reference_number: ref
           }
         ]
       )
