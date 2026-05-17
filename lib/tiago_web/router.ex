@@ -14,6 +14,7 @@ defmodule TiagoWeb.Router do
     plug Guardian.Plug.Pipeline,
       module: Tiago.Auth.Guardian,
       error_handler: TiagoWeb.AuthErrorHandler
+
     plug Guardian.Plug.VerifySession
     plug Guardian.Plug.LoadResource, allow_blank: true
   end
@@ -67,6 +68,9 @@ defmodule TiagoWeb.Router do
     live "/parties/:id/edit", PartyLive.Index, :edit
     live "/parties/:id", PartyLive.Show, :show
     live "/parties/:id/ledger", LedgerLive.Show, :show
+    live "/accounts", AccountLive.Index, :index
+    live "/accounts/:id/ledger", AccountLive.Ledger, :show
+    live "/bank-statements", BankStatementLive.Index, :index
     live "/uploads", UploadLive.Index, :index
     live "/settings", OrgLive.Settings, :index
     live "/settings/shared-links", OrgLive.SharedLinks, :index

@@ -16,8 +16,13 @@ defmodule Tiago.Accounting do
   end
 
   defp apply_account_filters(q, []), do: q
-  defp apply_account_filters(q, [{:account_type, t} | r]), do: q |> where([a], a.account_type == ^t) |> apply_account_filters(r)
-  defp apply_account_filters(q, [{:sub_type, s} | r]), do: q |> where([a], a.sub_type == ^s) |> apply_account_filters(r)
+
+  defp apply_account_filters(q, [{:account_type, t} | r]),
+    do: q |> where([a], a.account_type == ^t) |> apply_account_filters(r)
+
+  defp apply_account_filters(q, [{:sub_type, s} | r]),
+    do: q |> where([a], a.sub_type == ^s) |> apply_account_filters(r)
+
   defp apply_account_filters(q, [_ | r]), do: apply_account_filters(q, r)
 
   def get_account!(id), do: Repo.get!(Account, id)
@@ -64,17 +69,19 @@ defmodule Tiago.Accounting do
       Ecto.Multi.new()
       |> Ecto.Multi.insert(:journal, Journal.changeset(%Journal{}, journal_attrs))
       |> Ecto.Multi.run(:entries, fn _repo, %{journal: journal} ->
-        result = Enum.reduce_while(entries, {:ok, []}, fn attrs, {:ok, acc} ->
-          attrs = attrs
-            |> Map.put(:journal_id, journal.id)
-            |> Map.put_new(:date, journal.date)
-          
-          case %JournalEntry{} |> JournalEntry.changeset(attrs) |> Repo.insert() do
-            {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
-            {:error, changeset} -> {:halt, {:error, changeset}}
-          end
-        end)
-        
+        result =
+          Enum.reduce_while(entries, {:ok, []}, fn attrs, {:ok, acc} ->
+            attrs =
+              attrs
+              |> Map.put(:journal_id, journal.id)
+              |> Map.put_new(:date, journal.date)
+
+            case %JournalEntry{} |> JournalEntry.changeset(attrs) |> Repo.insert() do
+              {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
+              {:error, changeset} -> {:halt, {:error, changeset}}
+            end
+          end)
+
         case result do
           {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
           {:error, changeset} -> {:error, changeset}
@@ -103,9 +110,16 @@ defmodule Tiago.Accounting do
   end
 
   defp apply_journal_filters(q, []), do: q
-  defp apply_journal_filters(q, [{:party_id, id} | r]), do: q |> where([j], j.party_id == ^id) |> apply_journal_filters(r)
-  defp apply_journal_filters(q, [{:date_from, d} | r]), do: q |> where([j], j.date >= ^d) |> apply_journal_filters(r)
-  defp apply_journal_filters(q, [{:date_to, d} | r]), do: q |> where([j], j.date <= ^d) |> apply_journal_filters(r)
+
+  defp apply_journal_filters(q, [{:party_id, id} | r]),
+    do: q |> where([j], j.party_id == ^id) |> apply_journal_filters(r)
+
+  defp apply_journal_filters(q, [{:date_from, d} | r]),
+    do: q |> where([j], j.date >= ^d) |> apply_journal_filters(r)
+
+  defp apply_journal_filters(q, [{:date_to, d} | r]),
+    do: q |> where([j], j.date <= ^d) |> apply_journal_filters(r)
+
   defp apply_journal_filters(q, [_ | r]), do: apply_journal_filters(q, r)
 
   # ── Setup ──
@@ -131,7 +145,9 @@ defmodule Tiago.Accounting do
 
   # ── Private ──
 
-  defp validate_minimum_entries(entries) when length(entries) < 2, do: {:error, :minimum_two_entries}
+  defp validate_minimum_entries(entries) when length(entries) < 2,
+    do: {:error, :minimum_two_entries}
+
   defp validate_minimum_entries(_), do: :ok
 
   defp validate_balanced(entries) do
@@ -139,6 +155,7 @@ defmodule Tiago.Accounting do
       Enum.reduce(entries, {Money.new!(:INR, 0), Money.new!(:INR, 0)}, fn entry, {d, c} ->
         entry_type = Map.get(entry, :entry_type) || Map.get(entry, "entry_type")
         amount = Map.get(entry, :amount) || Map.get(entry, "amount")
+
         case entry_type do
           t when t in [:debit, "debit"] -> {Money.add!(d, amount), c}
           t when t in [:credit, "credit"] -> {d, Money.add!(c, amount)}
@@ -154,14 +171,20 @@ defmodule Tiago.Accounting do
     |> Enum.each(fn {account_id, acct_entries} ->
       account = get_account!(account_id)
 
-      new_balance = Enum.reduce(acct_entries, account.current_balance, fn entry, balance ->
-        case entry.entry_type do
-          :debit ->
-            if account.account_type in [:asset, :expense], do: Money.add!(balance, entry.amount), else: Money.sub!(balance, entry.amount)
-          :credit ->
-            if account.account_type in [:liability, :equity, :revenue], do: Money.add!(balance, entry.amount), else: Money.sub!(balance, entry.amount)
-        end
-      end)
+      new_balance =
+        Enum.reduce(acct_entries, account.current_balance, fn entry, balance ->
+          case entry.entry_type do
+            :debit ->
+              if account.account_type in [:asset, :expense],
+                do: Money.add!(balance, entry.amount),
+                else: Money.sub!(balance, entry.amount)
+
+            :credit ->
+              if account.account_type in [:liability, :equity, :revenue],
+                do: Money.add!(balance, entry.amount),
+                else: Money.sub!(balance, entry.amount)
+          end
+        end)
 
       account |> Ecto.Changeset.change(current_balance: new_balance) |> Repo.update!()
     end)

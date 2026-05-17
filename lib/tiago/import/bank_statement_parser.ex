@@ -41,35 +41,56 @@ defmodule Tiago.Import.BankStatementParser do
         debit != "" and debit != "0" ->
           amount = Money.new!(:INR, debit)
           payable = Accounting.get_account_by_sub_type(org_id, :payable)
-          create_journal(org_id, date, desc, ref, :payment, party,
-            [{payable.id, :debit, amount}, {bank_account.id, :credit, amount}])
+
+          create_journal(org_id, date, desc, ref, :payment, party, [
+            {payable.id, :debit, amount},
+            {bank_account.id, :credit, amount}
+          ])
 
         credit != "" and credit != "0" ->
           amount = Money.new!(:INR, credit)
           receivable = Accounting.get_account_by_sub_type(org_id, :receivable)
-          create_journal(org_id, date, desc, ref, :payment, party,
-            [{bank_account.id, :debit, amount}, {receivable.id, :credit, amount}])
 
-        true -> :skip
+          create_journal(org_id, date, desc, ref, :payment, party, [
+            {bank_account.id, :debit, amount},
+            {receivable.id, :credit, amount}
+          ])
+
+        true ->
+          :skip
       end
     else
-      {:error, :not_found} -> Logger.warning("No party: #{name}"); :skip
-      {:error, reason} -> Logger.error("Row error: #{inspect(reason)}"); {:error, reason}
+      {:error, :not_found} ->
+        Logger.warning("No party: #{name}")
+        :skip
+
+      {:error, reason} ->
+        Logger.error("Row error: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
   defp create_journal(org_id, date, desc, ref, ref_type, party, entry_tuples) do
-    entries = Enum.map(entry_tuples, fn {acct_id, type, amount} ->
-      %{account_id: acct_id, entry_type: type, amount: amount, description: desc}
-    end)
+    entries =
+      Enum.map(entry_tuples, fn {acct_id, type, amount} ->
+        %{account_id: acct_id, entry_type: type, amount: amount, description: desc}
+      end)
 
-    Accounting.create_journal(org_id,
-      %{date: date, description: desc, reference_type: ref_type, reference_number: ref, party_id: party.id},
+    Accounting.create_journal(
+      org_id,
+      %{
+        date: date,
+        description: desc,
+        reference_type: ref_type,
+        reference_number: ref,
+        party_id: party.id
+      },
       entries
     )
   end
 
   defp find_party(_org_id, ""), do: {:error, :not_found}
+
   defp find_party(org_id, name) do
     case Parties.list_parties_by_name_like(org_id, name) do
       [] -> {:error, :not_found}

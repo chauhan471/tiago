@@ -25,21 +25,29 @@ defmodule TiagoWeb.OrgLive.Index do
             <form action={~p"/organizations/select"} method="post" class="block">
               <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
               <input type="hidden" name="org_id" value={org.id} />
-              <button type="submit" class="w-full text-left bg-white shadow rounded-lg p-5 hover:shadow-md transition flex justify-between items-center">
+              <button
+                type="submit"
+                class="w-full text-left bg-white shadow rounded-lg p-5 hover:shadow-md transition flex justify-between items-center"
+              >
                 <div>
-                  <p class="font-semibold text-gray-900"><%= org.name %></p>
+                  <p class="font-semibold text-gray-900">{org.name}</p>
                   <%= if org.gstn do %>
-                    <p class="text-sm text-gray-500 font-mono mt-1"><%= org.gstn %></p>
+                    <p class="text-sm text-gray-500 font-mono mt-1">{org.gstn}</p>
                   <% end %>
                 </div>
-                <span class={"px-2 py-1 text-xs rounded-full font-medium #{if role == :admin, do: "bg-purple-100 text-purple-800", else: "bg-blue-100 text-blue-800"}"}><%= role %></span>
+                <span class={"px-2 py-1 text-xs rounded-full font-medium #{if role == :admin, do: "bg-purple-100 text-purple-800", else: "bg-blue-100 text-blue-800"}"}>
+                  {role}
+                </span>
               </button>
             </form>
           <% end %>
         </div>
       <% end %>
 
-      <.link navigate={~p"/organizations/new"} class="inline-flex items-center gap-2 bg-blue-600 text-white rounded-lg px-5 py-2.5 font-medium hover:bg-blue-700 transition">
+      <.link
+        navigate={~p"/organizations/new"}
+        class="inline-flex items-center gap-2 bg-blue-600 text-white rounded-lg px-5 py-2.5 font-medium hover:bg-blue-700 transition"
+      >
         + Create Organization
       </.link>
     </div>

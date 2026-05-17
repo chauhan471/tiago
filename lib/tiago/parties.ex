@@ -16,7 +16,10 @@ defmodule Tiago.Parties do
 
   defp apply_filters(q, []), do: q
   defp apply_filters(q, [{:type, t} | r]), do: q |> where([p], p.type == ^t) |> apply_filters(r)
-  defp apply_filters(q, [{:search, s} | r]), do: q |> where([p], ilike(p.name, ^"%#{s}%")) |> apply_filters(r)
+
+  defp apply_filters(q, [{:search, s} | r]),
+    do: q |> where([p], ilike(p.name, ^"%#{s}%")) |> apply_filters(r)
+
   defp apply_filters(q, [_ | r]), do: apply_filters(q, r)
 
   def get_party!(id), do: Party |> Repo.get!(id) |> Repo.preload(:party_gstns)
@@ -72,7 +75,8 @@ defmodule Tiago.Parties do
           Repo.preload(party, :party_gstns)
         end)
 
-      party -> {:ok, party}
+      party ->
+        {:ok, party}
     end
   end
 

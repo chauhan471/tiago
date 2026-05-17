@@ -14,7 +14,11 @@ defmodule Tiago.Import.GstrParser do
       Map.get(json_data, "b2b", [])
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :customer})
-        Enum.map(invoices, &create_sales_journal(org_id, &1, party, receivable, sales, gst_output))
+
+        Enum.map(
+          invoices,
+          &create_sales_journal(org_id, &1, party, receivable, sales, gst_output)
+        )
       end)
 
     count_results(results)
@@ -29,7 +33,11 @@ defmodule Tiago.Import.GstrParser do
       Map.get(json_data, "b2b", [])
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
-        Enum.map(invoices, &create_purchase_journal(org_id, &1, party, payable, purchases, gst_input))
+
+        Enum.map(
+          invoices,
+          &create_purchase_journal(org_id, &1, party, payable, purchases, gst_input)
+        )
       end)
 
     count_results(results)
@@ -41,16 +49,40 @@ defmodule Tiago.Import.GstrParser do
       {taxable_value, total_gst} = calculate_tax_from_items(Map.get(invoice, "itms", []))
       inum = invoice["inum"]
 
-      Accounting.create_journal(org_id,
+      Accounting.create_journal(
+        org_id,
         %{date: date, party_id: party.id},
         [
-          %{account_id: receivable.id, entry_type: :debit, amount: total_value, description: "Sales #{inum}", transaction_type: :invoice, reference_number: inum},
-          %{account_id: sales.id, entry_type: :credit, amount: taxable_value, description: "Revenue #{inum}", transaction_type: :invoice, reference_number: inum},
-          %{account_id: gst_output.id, entry_type: :credit, amount: total_gst, description: "GST Output #{inum}", transaction_type: :invoice, reference_number: inum}
+          %{
+            account_id: receivable.id,
+            entry_type: :debit,
+            amount: total_value,
+            description: "Sales #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          },
+          %{
+            account_id: sales.id,
+            entry_type: :credit,
+            amount: taxable_value,
+            description: "Revenue #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          },
+          %{
+            account_id: gst_output.id,
+            entry_type: :credit,
+            amount: total_gst,
+            description: "GST Output #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          }
         ]
       )
     else
-      error -> Logger.error("Sales journal failed: #{inspect(error)}"); error
+      error ->
+        Logger.error("Sales journal failed: #{inspect(error)}")
+        error
     end
   end
 
@@ -60,16 +92,40 @@ defmodule Tiago.Import.GstrParser do
       {taxable_value, total_gst} = calculate_tax_from_items(Map.get(invoice, "itms", []))
       inum = invoice["inum"]
 
-      Accounting.create_journal(org_id,
+      Accounting.create_journal(
+        org_id,
         %{date: date, party_id: party.id},
         [
-          %{account_id: purchases.id, entry_type: :debit, amount: taxable_value, description: "Purchase #{inum}", transaction_type: :invoice, reference_number: inum},
-          %{account_id: gst_input.id, entry_type: :debit, amount: total_gst, description: "GST Input #{inum}", transaction_type: :invoice, reference_number: inum},
-          %{account_id: payable.id, entry_type: :credit, amount: total_value, description: "Payable #{inum}", transaction_type: :invoice, reference_number: inum}
+          %{
+            account_id: purchases.id,
+            entry_type: :debit,
+            amount: taxable_value,
+            description: "Purchase #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          },
+          %{
+            account_id: gst_input.id,
+            entry_type: :debit,
+            amount: total_gst,
+            description: "GST Input #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          },
+          %{
+            account_id: payable.id,
+            entry_type: :credit,
+            amount: total_value,
+            description: "Payable #{inum}",
+            transaction_type: :invoice,
+            reference_number: inum
+          }
         ]
       )
     else
-      error -> Logger.error("Purchase journal failed: #{inspect(error)}"); error
+      error ->
+        Logger.error("Purchase journal failed: #{inspect(error)}")
+        error
     end
   end
 
@@ -92,7 +148,9 @@ defmodule Tiago.Import.GstrParser do
   defp parse_money(v) when is_number(v), do: {:ok, to_money(v)}
   defp parse_money(_), do: {:error, "invalid amount"}
 
-  defp to_money(v) when is_float(v), do: Money.new!(:INR, Decimal.from_float(v) |> Decimal.round(2))
+  defp to_money(v) when is_float(v),
+    do: Money.new!(:INR, Decimal.from_float(v) |> Decimal.round(2))
+
   defp to_money(v) when is_integer(v), do: Money.new!(:INR, Decimal.new(v))
 
   defp ensure_account!(org_id, sub_type) do
@@ -100,7 +158,9 @@ defmodule Tiago.Import.GstrParser do
       nil ->
         Accounting.setup_default_accounts(org_id)
         Accounting.get_account_by_sub_type(org_id, sub_type)
-      account -> account
+
+      account ->
+        account
     end
   end
 

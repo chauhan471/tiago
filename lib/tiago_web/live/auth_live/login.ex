@@ -14,20 +14,34 @@ defmodule TiagoWeb.AuthLive.Login do
           <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input type="email" name="email" placeholder="you@example.com" required
-                   class="w-full rounded-lg border-gray-300" />
+            <input
+              type="email"
+              name="email"
+              placeholder="you@example.com"
+              required
+              class="w-full rounded-lg border-gray-300"
+            />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input type="password" name="password" placeholder="Password" required
-                   class="w-full rounded-lg border-gray-300" />
+            <input
+              type="password"
+              name="password"
+              placeholder="Password"
+              required
+              class="w-full rounded-lg border-gray-300"
+            />
           </div>
-          <button type="submit" class="w-full bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
+          <button
+            type="submit"
+            class="w-full bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition"
+          >
             Log In
           </button>
         </form>
         <p class="text-center text-sm text-gray-600 mt-4">
-          Don't have an account? <.link navigate={~p"/register"} class="text-blue-600 hover:underline">Register</.link>
+          Don't have an account?
+          <.link navigate={~p"/register"} class="text-blue-600 hover:underline">Register</.link>
         </p>
       </div>
     </div>

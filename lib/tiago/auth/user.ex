@@ -46,7 +46,9 @@ defmodule Tiago.Auth.User do
 
   defp hash_password(changeset) do
     case get_change(changeset, :password) do
-      nil -> changeset
+      nil ->
+        changeset
+
       password ->
         changeset
         |> put_change(:hashed_password, Bcrypt.hash_pwd_salt(password))

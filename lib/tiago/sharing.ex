@@ -18,7 +18,9 @@ defmodule Tiago.Sharing do
     )
     |> Repo.one()
     |> case do
-      nil -> nil
+      nil ->
+        nil
+
       link ->
         if expired?(link), do: nil, else: link
     end
@@ -41,5 +43,7 @@ defmodule Tiago.Sharing do
   end
 
   defp expired?(%SharedLedgerLink{expires_at: nil}), do: false
-  defp expired?(%SharedLedgerLink{expires_at: exp}), do: DateTime.compare(DateTime.utc_now(), exp) == :gt
+
+  defp expired?(%SharedLedgerLink{expires_at: exp}),
+    do: DateTime.compare(DateTime.utc_now(), exp) == :gt
 end

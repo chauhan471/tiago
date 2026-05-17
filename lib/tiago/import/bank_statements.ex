@@ -1,166 +1,261 @@
 defmodule Tiago.Import.BankStatements do
-  @moduledoc "Context for managing interactive bank statement imports."
+  @moduledoc "Context for managing bank statements directly attached to accounts."
 
   import Ecto.Query, warn: false
   alias Tiago.Repo
-  alias Tiago.Import.{BankStatementImport, BankStatementRow, DateParser}
+  alias Tiago.Import.{BankStatement, DateParser, BankStatementParsers}
   alias Tiago.Parties
   alias Tiago.Accounting
 
-  def list_pending_imports(org_id) do
-    Repo.all(
-      from i in BankStatementImport,
-        where: i.organization_id == ^org_id and i.status != "completed",
-        order_by: [desc: i.inserted_at]
-    )
+  def list_statements(account_id, opts \\ []) do
+    query = from s in BankStatement, where: s.account_id == ^account_id
+    
+    query = 
+      case Keyword.get(opts, :status) do
+        "processed" -> where(query, [s], s.is_processed == true)
+        "unprocessed" -> where(query, [s], s.is_processed == false)
+        _ -> query
+      end
+      
+    query
+    |> order_by([s], asc: s.id)
+    |> Repo.all()
   end
 
-  def create_import(attrs \\ %{}) do
-    %BankStatementImport{}
-    |> BankStatementImport.changeset(attrs)
-    |> Repo.insert()
-  end
+  def get_statement!(id), do: Repo.get!(BankStatement, id)
 
-  def get_import!(id), do: Repo.get!(BankStatementImport, id)
-
-  def get_import_with_rows!(id) do
-    BankStatementImport
-    |> preload(rows: ^{:order_by, [asc: :id]})
-    |> Repo.get!(id)
-  end
-
-  def read_headers_and_sample(filepath) do
-    filepath
-    |> File.stream!()
-    |> CSV.decode!(headers: true)
-    |> Enum.take(3)
-    |> case do
-      [] -> {:error, "Empty CSV"}
-      [first | _] = sample -> {:ok, Map.keys(first), sample}
-    end
-  end
-
-  def update_import(import, attrs) do
-    import
-    |> BankStatementImport.changeset(attrs)
+  def update_statement(statement, attrs) do
+    statement
+    |> BankStatement.changeset(attrs)
     |> Repo.update()
   end
-
-  def update_row(row, attrs) do
-    row
-    |> BankStatementRow.changeset(attrs)
-    |> Repo.update()
+  
+  def delete_statement(statement) do
+    Repo.delete(statement)
   end
 
-  def process_raw_csv(import, filepath, column_mapping) do
-    # Ensure any existing rows are deleted if re-processing
-    Repo.delete_all(from r in BankStatementRow, where: r.import_id == ^import.id)
-
-    # Cache parties for fast fuzzy matching
-    parties = Parties.list_parties(import.organization_id)
-
-    filepath
-    |> File.stream!()
-    |> CSV.decode!(headers: true)
-    |> Enum.each(fn row ->
-      attrs = build_row_attrs(import.id, row, column_mapping, parties)
-      %BankStatementRow{} |> BankStatementRow.changeset(attrs) |> Repo.insert!()
-    end)
-
-    update_import(import, %{status: "mapped", column_mapping: column_mapping})
+  def delete_statements(ids) when is_list(ids) do
+    Repo.delete_all(from s in BankStatement, where: s.id in ^ids)
   end
 
-  defp build_row_attrs(import_id, raw_row, mapping, parties) do
-    date_str = Map.get(raw_row, mapping["date"], "")
-    desc = Map.get(raw_row, mapping["description"], "") |> String.trim()
-    ref = Map.get(raw_row, mapping["reference"], "") |> String.trim()
-    debit_str = Map.get(raw_row, mapping["debit"], "") |> String.trim()
-    credit_str = Map.get(raw_row, mapping["credit"], "") |> String.trim()
+  def process_file(account_id, org_id, filepath, format) do
+    # Ensure account exists
+    _account = Accounting.get_account!(account_id)
+    
+    # Cache recent parties for fast fuzzy matching
+    parties = Parties.list_parties(org_id) |> Enum.take(50)
+    
+    mapping = BankStatementParsers.default_mapping(format)
+    
+    inserted =
+      filepath
+      |> BankStatementParsers.stream_rows(format)
+      |> Enum.reduce(0, fn row, acc ->
+        attrs = build_statement_attrs(account_id, row, mapping, parties)
+        %BankStatement{} |> BankStatement.changeset(attrs) |> Repo.insert!()
+        acc + 1
+      end)
+      
+    {:ok, %{rows_inserted: inserted}}
+  end
 
-    date = case DateParser.parse_date(date_str) do
-      {:ok, d} -> d
-      _ -> nil
-    end
+  defp build_statement_attrs(account_id, raw_row, mapping, parties) do
+    # Create a new map with trimmed keys for reliable lookups
+    clean_row = Map.new(raw_row, fn {k, v} -> {String.trim(to_string(k)), v} end)
+
+    date_str = get_and_trim(clean_row, mapping["date"])
+    desc = get_and_trim(clean_row, mapping["description"])
+    ref = get_and_trim(clean_row, mapping["reference"])
+    debit_str = get_and_trim(clean_row, mapping["debit"])
+    credit_str = get_and_trim(clean_row, mapping["credit"])
+
+    date =
+      case DateParser.parse_date(date_str) do
+        {:ok, d} -> d
+        _ -> nil
+      end
 
     debit = parse_money(debit_str)
     credit = parse_money(credit_str)
 
-    {party_id, detected} = detect_party(desc, ref, parties)
+    party_id = detect_party(desc, ref, parties)
 
     %{
-      import_id: import_id,
+      account_id: account_id,
       raw_data: raw_row,
       date: date,
       description: desc,
-      reference: ref,
+      payment_reference: ref,
       debit: debit,
       credit: credit,
       party_id: party_id,
-      party_detected: detected
+      is_processed: false
     }
   end
 
-  defp parse_money(""), do: nil
-  defp parse_money("0"), do: nil
-  defp parse_money(nil), do: nil
-  defp parse_money(str) do
-    # Remove commas and attempt to parse
-    clean = String.replace(str, ",", "")
-    case Float.parse(clean) do
-      {f, _} -> Money.new(:INR, f) |> elem(1)
-      :error -> nil
+  defp get_and_trim(row, key) do
+    case Map.get(row, key) do
+      nil -> ""
+      val when is_binary(val) -> String.trim(val)
+      val -> to_string(val) |> String.trim()
     end
   end
 
-  defp detect_party(desc, ref, parties) do
-    # Simple substring matching (case-insensitive)
-    desc_down = String.downcase(desc)
-    ref_down = String.downcase(ref)
+  defp parse_money(""), do: nil
+  defp parse_money(nil), do: nil
 
-    match = Enum.find(parties, fn p ->
-      name = String.downcase(p.name)
-      String.contains?(desc_down, name) or String.contains?(ref_down, name)
-    end)
+  defp parse_money(str) when is_binary(str) do
+    clean = String.replace(str, ",", "") |> String.trim()
 
-    if match, do: {match.id, true}, else: {nil, false}
+    case Float.parse(clean) do
+      {f, _} -> 
+        if f == 0.0 do
+          nil
+        else
+          Money.new!(:INR, Decimal.from_float(f) |> Decimal.round(2))
+        end
+      :error -> nil
+    end
   end
+  
+  defp parse_money(_), do: nil
 
-  def create_journals_for_import(import_id) do
-    import = get_import_with_rows!(import_id)
-    org_id = import.organization_id
-    
-    bank_account_id = import.bank_account_id || Accounting.get_default_bank_account(org_id).id
-    payable = Accounting.get_account_by_sub_type(org_id, :payable)
-    receivable = Accounting.get_account_by_sub_type(org_id, :receivable)
+  defp detect_party(desc, ref, parties) do
+    desc_down = String.downcase(desc || "")
+    ref_down = String.downcase(ref || "")
+    combined = desc_down <> " " <> ref_down
 
-    Repo.transaction(fn ->
-      Enum.each(import.rows, fn row ->
-        # Only process if it has a party and a valid date
-        if row.party_id && row.date do
-          if row.debit && Money.positive?(row.debit) do
-            create_journal(org_id, row.date, row.description, row.reference, :payment, row.party_id,
-              [{payable.id, :debit, row.debit}, {bank_account_id, :credit, row.debit}])
-          end
+    # Sort by length desc so we match longer, more specific names first
+    parties = Enum.sort_by(parties, &String.length(&1.name), :desc)
 
-          if row.credit && Money.positive?(row.credit) do
-            create_journal(org_id, row.date, row.description, row.reference, :payment, row.party_id,
-              [{bank_account_id, :debit, row.credit}, {receivable.id, :credit, row.credit}])
+    match =
+      Enum.find(parties, fn p ->
+        name_down = String.downcase(p.name)
+        
+        # 1. Try exact full match first
+        if String.contains?(combined, name_down) do
+          true
+        else
+          # 2. Try significant substrings (words > 3 chars)
+          significant_words = 
+            name_down
+            |> String.split([" ", "&", "-", ".", ","])
+            |> Enum.map(&String.trim/1)
+            |> Enum.filter(&(String.length(&1) > 3))
+
+          if length(significant_words) > 0 do
+            Enum.any?(significant_words, &String.contains?(combined, &1))
+          else
+            false
           end
         end
       end)
 
-      update_import(import, %{status: "completed"})
-    end)
+    if match, do: match.id, else: nil
+  end
+
+  def process_statement_to_ledger(statement_id, org_id) do
+    statement = get_statement!(statement_id)
+    
+    if statement.is_processed do
+      {:error, "Already processed"}
+    else
+      if !statement.party_id && !statement.counter_account_id do
+        {:error, "Counterparty mapping is required"}
+      else
+        if !statement.date do
+          {:error, "Date is required"}
+        else
+          # Create journal
+          result = Repo.transaction(fn ->
+            if statement.party_id do
+              payable = Accounting.get_account_by_sub_type(org_id, :payable)
+              receivable = Accounting.get_account_by_sub_type(org_id, :receivable)
+              
+              if statement.debit && Money.positive?(statement.debit) do
+                create_journal(
+                  org_id,
+                  statement.date,
+                  statement.description,
+                  statement.payment_reference,
+                  :payment,
+                  statement.party_id,
+                  [{payable.id, :debit, statement.debit}, {statement.account_id, :credit, statement.debit}]
+                )
+              end
+  
+              if statement.credit && Money.positive?(statement.credit) do
+                create_journal(
+                  org_id,
+                  statement.date,
+                  statement.description,
+                  statement.payment_reference,
+                  :payment,
+                  statement.party_id,
+                  [{statement.account_id, :debit, statement.credit}, {receivable.id, :credit, statement.credit}]
+                )
+              end
+            else
+              # Map directly to internal account
+              counter_id = statement.counter_account_id
+              
+              if statement.debit && Money.positive?(statement.debit) do
+                create_journal(
+                  org_id,
+                  statement.date,
+                  statement.description,
+                  statement.payment_reference,
+                  :payment,
+                  nil,
+                  [{counter_id, :debit, statement.debit}, {statement.account_id, :credit, statement.debit}]
+                )
+              end
+  
+              if statement.credit && Money.positive?(statement.credit) do
+                create_journal(
+                  org_id,
+                  statement.date,
+                  statement.description,
+                  statement.payment_reference,
+                  :payment,
+                  nil,
+                  [{statement.account_id, :debit, statement.credit}, {counter_id, :credit, statement.credit}]
+                )
+              end
+            end
+            
+            update_statement(statement, %{is_processed: true})
+          end)
+          
+          case result do
+            {:ok, {:ok, _}} -> {:ok, statement}
+            {:error, reason} -> {:error, reason}
+          end
+        end
+      end
+    end
   end
 
   defp create_journal(org_id, date, desc, ref, transaction_type, party_id, entry_tuples) do
-    entries = Enum.map(entry_tuples, fn {acct_id, type, amount} ->
-      %{account_id: acct_id, entry_type: type, amount: amount, description: desc, transaction_type: transaction_type, reference_number: ref}
-    end)
+    entries =
+      Enum.map(entry_tuples, fn {acct_id, type, amount} ->
+        %{
+          account_id: acct_id,
+          entry_type: type,
+          amount: amount,
+          description: desc,
+          transaction_type: transaction_type,
+          reference_number: ref
+        }
+      end)
 
-    Accounting.create_journal(org_id,
+    case Accounting.create_journal(
+      org_id,
       %{date: date, party_id: party_id},
       entries
-    )
+    ) do
+      {:ok, _} -> :ok
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
   end
 end

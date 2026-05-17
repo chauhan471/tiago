@@ -3,7 +3,7 @@ defmodule Tiago.Ledger do
 
   import Ecto.Query, warn: false
   alias Tiago.Repo
-  alias Tiago.Accounting.Journal
+  alias Tiago.Accounting.{Journal, JournalEntry}
   alias Tiago.Parties
 
   def party_ledger(party_id, opts \\ []) do
@@ -26,13 +26,19 @@ defmodule Tiago.Ledger do
       end
 
     # Calculate opening balance from entries before the date filter
-    opening_balance = compute_opening_balance(party_id, target_sub_types, Keyword.get(opts, :date_from))
+    opening_balance =
+      compute_opening_balance(party_id, target_sub_types, Keyword.get(opts, :date_from))
 
     opening_row = %{
-      date: Keyword.get(opts, :date_from) || List.first(journals, %{date: Date.utc_today()}) |> Map.get(:date),
+      date:
+        Keyword.get(opts, :date_from) ||
+          List.first(journals, %{date: Date.utc_today()}) |> Map.get(:date),
       description: "Opening Balance",
-      reference_type: nil, reference_number: nil, journal_id: nil,
-      debit: Money.new!(:INR, 0), credit: Money.new!(:INR, 0),
+      reference_type: nil,
+      reference_number: nil,
+      journal_id: nil,
+      debit: Money.new!(:INR, 0),
+      credit: Money.new!(:INR, 0),
       balance: opening_balance,
       is_opening: true
     }
@@ -42,13 +48,19 @@ defmodule Tiago.Ledger do
         {debit, credit} = compute_debit_credit(journal.entries, target_sub_types)
         new_balance = balance |> Money.add!(debit) |> Money.sub!(credit)
         first_entry = List.first(journal.entries) || %{}
-        
+
         entry = %{
-          date: journal.date, description: Map.get(first_entry, :description, "—"),
-          reference_type: Map.get(first_entry, :transaction_type, "—"), reference_number: Map.get(first_entry, :reference_number, "—"),
-          journal_id: journal.id, debit: debit, credit: credit, balance: new_balance,
+          date: journal.date,
+          description: Map.get(first_entry, :description, "—"),
+          reference_type: Map.get(first_entry, :transaction_type, "—"),
+          reference_number: Map.get(first_entry, :reference_number, "—"),
+          journal_id: journal.id,
+          debit: debit,
+          credit: credit,
+          balance: new_balance,
           is_opening: false
         }
+
         {acc ++ [entry], new_balance}
       end)
 
@@ -67,6 +79,7 @@ defmodule Tiago.Ledger do
   defp compute_debit_credit(entries, target_sub_types) do
     Enum.reduce(entries, {Money.new!(:INR, 0), Money.new!(:INR, 0)}, fn entry, {d, c} ->
       account = Tiago.Accounting.get_account!(entry.account_id)
+
       if account.sub_type in target_sub_types do
         case entry.entry_type do
           :debit -> {Money.add!(d, entry.amount), c}
@@ -99,4 +112,113 @@ defmodule Tiago.Ledger do
   defp maybe_filter(q, _, nil), do: q
   defp maybe_filter(q, :date_from, d), do: where(q, [j], j.date >= ^d)
   defp maybe_filter(q, :date_to, d), do: where(q, [j], j.date <= ^d)
+
+  def account_ledger(account_id, opts \\ []) do
+    account = Tiago.Accounting.get_account!(account_id)
+
+    entries =
+      JournalEntry
+      |> where([e], e.account_id == ^account_id)
+      |> join(:inner, [e], j in assoc(e, :journal))
+      |> maybe_filter_entry(:date_from, Keyword.get(opts, :date_from))
+      |> maybe_filter_entry(:date_to, Keyword.get(opts, :date_to))
+      |> order_by([e, j], asc: e.date, asc: j.id, asc: e.id)
+      |> preload([e, j], journal: j)
+      |> Repo.all()
+
+    opening_balance =
+      compute_account_opening_balance(
+        account_id,
+        account.account_type,
+        Keyword.get(opts, :date_from)
+      )
+
+    opening_row = %{
+      date:
+        Keyword.get(opts, :date_from) ||
+          List.first(entries, %{date: Date.utc_today()}) |> Map.get(:date),
+      description: "Opening Balance",
+      reference_type: nil,
+      reference_number: nil,
+      journal_id: nil,
+      debit: Money.new!(:INR, 0),
+      credit: Money.new!(:INR, 0),
+      balance: opening_balance,
+      is_opening: true
+    }
+
+    {processed_entries, _} =
+      Enum.reduce(entries, {[], opening_balance}, fn entry, {acc, balance} ->
+        {debit, credit} =
+          case entry.entry_type do
+            :debit -> {entry.amount, Money.new!(:INR, 0)}
+            :credit -> {Money.new!(:INR, 0), entry.amount}
+          end
+
+        new_balance = compute_new_balance(balance, debit, credit, account.account_type)
+
+        row = %{
+          date: entry.date,
+          description: entry.description || "—",
+          reference_type: entry.transaction_type || "—",
+          reference_number: entry.reference_number || "—",
+          journal_id: entry.journal_id,
+          debit: debit,
+          credit: credit,
+          balance: new_balance,
+          is_opening: false
+        }
+
+        {acc ++ [row], new_balance}
+      end)
+
+    all_entries = [opening_row | processed_entries]
+
+    %{
+      account: account,
+      entries: all_entries,
+      opening_balance: opening_balance,
+      total_debit: Enum.reduce(processed_entries, Money.new!(:INR, 0), &Money.add!(&1.debit, &2)),
+      total_credit:
+        Enum.reduce(processed_entries, Money.new!(:INR, 0), &Money.add!(&1.credit, &2)),
+      closing_balance:
+        if(processed_entries == [],
+          do: opening_balance,
+          else: List.last(processed_entries).balance
+        )
+    }
+  end
+
+  defp compute_new_balance(balance, debit, credit, account_type) do
+    case account_type do
+      type when type in [:asset, :expense] ->
+        balance |> Money.add!(debit) |> Money.sub!(credit)
+
+      type when type in [:liability, :equity, :revenue] ->
+        balance |> Money.add!(credit) |> Money.sub!(debit)
+    end
+  end
+
+  defp compute_account_opening_balance(_account_id, _account_type, nil), do: Money.new!(:INR, 0)
+
+  defp compute_account_opening_balance(account_id, account_type, date_from) do
+    entries =
+      JournalEntry
+      |> where([e], e.account_id == ^account_id and e.date < ^date_from)
+      |> Repo.all()
+
+    Enum.reduce(entries, Money.new!(:INR, 0), fn entry, balance ->
+      {debit, credit} =
+        case entry.entry_type do
+          :debit -> {entry.amount, Money.new!(:INR, 0)}
+          :credit -> {Money.new!(:INR, 0), entry.amount}
+        end
+
+      compute_new_balance(balance, debit, credit, account_type)
+    end)
+  end
+
+  defp maybe_filter_entry(q, _, nil), do: q
+  defp maybe_filter_entry(q, :date_from, d), do: where(q, [e], e.date >= ^d)
+  defp maybe_filter_entry(q, :date_to, d), do: where(q, [e], e.date <= ^d)
 end

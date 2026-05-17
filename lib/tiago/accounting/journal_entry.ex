@@ -11,7 +11,10 @@ defmodule Tiago.Accounting.JournalEntry do
     field :amount, Money.Ecto.Composite.Type
     field :date, :date
     field :description, :string
-    field :transaction_type, Ecto.Enum, values: [:invoice, :payment, :credit_note, :debit_note, :manual]
+
+    field :transaction_type, Ecto.Enum,
+      values: [:invoice, :payment, :credit_note, :debit_note, :manual]
+
     field :reference_number, :string
 
     belongs_to :journal, Tiago.Accounting.Journal
@@ -22,21 +25,39 @@ defmodule Tiago.Accounting.JournalEntry do
 
   def changeset(journal_entry, attrs) do
     journal_entry
-    |> cast(attrs, [:journal_id, :account_id, :entry_type, :amount, :date, :description, :transaction_type, :reference_number])
+    |> cast(attrs, [
+      :journal_id,
+      :account_id,
+      :entry_type,
+      :amount,
+      :date,
+      :description,
+      :transaction_type,
+      :reference_number
+    ])
     |> validate_required([:journal_id, :account_id, :entry_type, :amount, :date])
     |> validate_positive_amount()
     |> foreign_key_constraint(:journal_id)
     |> foreign_key_constraint(:account_id)
-    |> unique_constraint(:reference_number, name: :journal_entries_unique_invoice_idx, message: "Duplicate invoice entry")
-    |> unique_constraint(:description, name: :journal_entries_unique_payment_idx, message: "Duplicate payment entry")
+    |> unique_constraint(:reference_number,
+      name: :journal_entries_unique_invoice_idx,
+      message: "Duplicate invoice entry"
+    )
+    |> unique_constraint(:description,
+      name: :journal_entries_unique_payment_idx,
+      message: "Duplicate payment entry"
+    )
   end
 
   defp validate_positive_amount(changeset) do
     case get_field(changeset, :amount) do
       %Money{} = money ->
-        if Money.positive?(money), do: changeset,
-        else: add_error(changeset, :amount, "must be positive")
-      _ -> changeset
+        if Money.positive?(money),
+          do: changeset,
+          else: add_error(changeset, :amount, "must be positive")
+
+      _ ->
+        changeset
     end
   end
 

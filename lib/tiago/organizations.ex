@@ -9,7 +9,8 @@ defmodule Tiago.Organizations do
 
   def list_user_organizations(user_id) do
     from(o in Organization,
-      join: m in OrgMembership, on: m.organization_id == o.id,
+      join: m in OrgMembership,
+      on: m.organization_id == o.id,
       where: m.user_id == ^user_id,
       select: %{organization: o, role: m.role},
       order_by: o.name

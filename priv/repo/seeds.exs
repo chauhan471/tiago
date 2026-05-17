@@ -6,11 +6,14 @@ alias Tiago.{Auth, Organizations, Accounting}
 
 # Create a default admin user
 IO.puts("Creating default admin user...")
-{:ok, admin} = Auth.register_user(%{
-  email: "admin@tiago.dev",
-  name: "Admin",
-  password: "admin12345"
-})
+
+{:ok, admin} =
+  Auth.register_user(%{
+    email: "admin@tiago.dev",
+    name: "Admin",
+    password: "admin12345"
+  })
+
 IO.puts("  ✓ User: #{admin.email}")
 
 # Create a demo organization
@@ -25,6 +28,7 @@ results = Accounting.setup_default_accounts(org.id)
 Enum.each(results, fn
   {:ok, account} ->
     IO.puts("  ✓ #{account.name} (#{account.account_type}/#{account.sub_type})")
+
   {:error, changeset} ->
     IO.puts("  ✗ Error: #{inspect(changeset.errors)}")
 end)

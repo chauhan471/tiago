@@ -8,7 +8,9 @@ defmodule TiagoWeb.Live.OrgHook do
   def on_mount(:default, _params, session, socket) do
     user =
       case session["guardian_default_token"] do
-        nil -> nil
+        nil ->
+          nil
+
         token ->
           case Tiago.Auth.Guardian.resource_from_token(token) do
             {:ok, user, _claims} -> user
@@ -45,7 +47,9 @@ defmodule TiagoWeb.Live.OrgHook do
   def on_mount(:auth_only, _params, session, socket) do
     user =
       case session["guardian_default_token"] do
-        nil -> nil
+        nil ->
+          nil
+
         token ->
           case Tiago.Auth.Guardian.resource_from_token(token) do
             {:ok, user, _claims} -> user

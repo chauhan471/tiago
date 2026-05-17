@@ -35,7 +35,9 @@ defmodule Tiago.Import.Utils do
           {:ok, decoded} -> {:ok, file_path, decoded}
           {:error, reason} -> {:error, file_path, reason}
         end
-      {:error, reason} -> {:error, file_path, reason}
+
+      {:error, reason} ->
+        {:error, file_path, reason}
     end
   end
 end

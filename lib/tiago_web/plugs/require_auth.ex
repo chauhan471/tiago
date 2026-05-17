@@ -14,7 +14,8 @@ defmodule TiagoWeb.Plugs.RequireAuth do
         |> redirect(to: "/login")
         |> halt()
 
-      _user -> conn
+      _user ->
+        conn
     end
   end
 end

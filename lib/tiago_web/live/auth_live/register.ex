@@ -3,7 +3,11 @@ defmodule TiagoWeb.AuthLive.Register do
   alias Tiago.Auth.User
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, page_title: "Register", form: to_form(User.registration_changeset(%User{}, %{})))}
+    {:ok,
+     assign(socket,
+       page_title: "Register",
+       form: to_form(User.registration_changeset(%User{}, %{}))
+     )}
   end
 
   def render(assigns) do
@@ -25,12 +29,16 @@ defmodule TiagoWeb.AuthLive.Register do
             <.input field={@form[:password]} type="password" placeholder="Min 8 characters" required />
           </div>
           <input type="hidden" name="_action" value="register" />
-          <button type="submit" class="w-full bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
+          <button
+            type="submit"
+            class="w-full bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition"
+          >
             Create Account
           </button>
         </.form>
         <p class="text-center text-sm text-gray-600 mt-4">
-          Already have an account? <.link navigate={~p"/login"} class="text-blue-600 hover:underline">Log in</.link>
+          Already have an account?
+          <.link navigate={~p"/login"} class="text-blue-600 hover:underline">Log in</.link>
         </p>
       </div>
     </div>

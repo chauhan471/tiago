@@ -21,7 +21,14 @@ defmodule Tiago.Accounting.Account do
 
   def changeset(account, attrs) do
     account
-    |> cast(attrs, [:name, :account_type, :sub_type, :current_balance, :is_default, :organization_id])
+    |> cast(attrs, [
+      :name,
+      :account_type,
+      :sub_type,
+      :current_balance,
+      :is_default,
+      :organization_id
+    ])
     |> validate_required([:name, :account_type, :sub_type, :organization_id])
     |> put_default_balance()
     |> foreign_key_constraint(:organization_id)
