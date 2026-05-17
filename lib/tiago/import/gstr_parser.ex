@@ -10,7 +10,7 @@ defmodule Tiago.Import.GstrParser do
     sales = ensure_account!(org_id, :sales)
     gst_output = ensure_account!(org_id, :gst_output)
 
-    results =
+    invoice_results =
       Map.get(json_data, "b2b", [])
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :customer})
@@ -21,7 +21,18 @@ defmodule Tiago.Import.GstrParser do
         )
       end)
 
-    count_results(results)
+    note_results =
+      Map.get(json_data, "cdnr", [])
+      |> Enum.flat_map(fn %{"ctin" => gstn, "nt" => notes} ->
+        {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :customer})
+
+        Enum.map(
+          notes,
+          &create_sales_note(org_id, &1, party, receivable, sales, gst_output)
+        )
+      end)
+
+    count_results(invoice_results ++ note_results)
   end
 
   def process_gstr2b_json(org_id, json_data) do
@@ -29,7 +40,7 @@ defmodule Tiago.Import.GstrParser do
     purchases = ensure_account!(org_id, :purchases)
     gst_input = ensure_account!(org_id, :gst_input)
 
-    results =
+    invoice_results =
       (get_in(json_data, ["data", "docdata", "b2b"]) || [])
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
@@ -40,7 +51,18 @@ defmodule Tiago.Import.GstrParser do
         )
       end)
 
-    count_results(results)
+    note_results =
+      (get_in(json_data, ["data", "docdata", "cdnr"]) || [])
+      |> Enum.flat_map(fn %{"ctin" => gstn, "nt" => notes} ->
+        {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
+
+        Enum.map(
+          notes,
+          &create_purchase_note(org_id, &1, party, payable, purchases, gst_input)
+        )
+      end)
+
+    count_results(invoice_results ++ note_results)
   end
 
   defp create_sales_journal(org_id, invoice, party, receivable, sales, gst_output) do
@@ -142,6 +164,113 @@ defmodule Tiago.Import.GstrParser do
     else
       error ->
         Logger.error("Purchase journal failed: #{inspect(error)}")
+        error
+    end
+  end
+
+  defp create_sales_note(org_id, note, party, receivable, sales, gst_output) do
+    with {:ok, date} <- DateParser.parse_date(note["nt_dt"]),
+         {:ok, total_value} <- parse_money(note["val"]) do
+      {taxable_value, total_gst} = calculate_tax_from_items(Map.get(note, "itms", []))
+      nt_num = note["nt_num"]
+      ntty = note["ntty"]
+
+      is_credit_note = ntty == "C"
+      desc = if is_credit_note, do: "Credit Note #{nt_num}", else: "Debit Note #{nt_num}"
+      ref = if is_credit_note, do: "CN-#{nt_num}", else: "DN-#{nt_num}"
+      transaction_type = if is_credit_note, do: :credit_note, else: :debit_note
+
+      entries =
+        if is_credit_note do
+          [
+            %{account_id: sales.id, entry_type: :debit, amount: taxable_value},
+            %{account_id: gst_output.id, entry_type: :debit, amount: total_gst},
+            %{account_id: receivable.id, entry_type: :credit, amount: total_value}
+          ]
+        else
+          [
+            %{account_id: receivable.id, entry_type: :debit, amount: total_value},
+            %{account_id: sales.id, entry_type: :credit, amount: taxable_value},
+            %{account_id: gst_output.id, entry_type: :credit, amount: total_gst}
+          ]
+        end
+
+      entries = Enum.map(entries, fn e -> 
+        Map.merge(e, %{
+          description: desc,
+          transaction_type: transaction_type,
+          reference_number: ref
+        })
+      end)
+
+      Accounting.create_journal(
+        org_id,
+        %{date: date, party_id: party.id},
+        entries
+      )
+    else
+      error ->
+        Logger.error("Sales note failed: #{inspect(error)}")
+        error
+    end
+  end
+
+  defp create_purchase_note(org_id, note, party, payable, purchases, gst_input) do
+    with {:ok, date} <- DateParser.parse_date(note["nt_dt"] || note["dt"]),
+         {:ok, total_value} <- parse_money(note["val"]) do
+      
+      {taxable_value, total_gst} = 
+        if Map.has_key?(note, "itms") do
+          calculate_tax_from_items(note["itms"])
+        else
+          taxval = to_money(get_num(note, "txval", 0))
+          tax_amount = 
+            get_num(note, "igst", 0) + 
+            get_num(note, "cgst", 0) + 
+            get_num(note, "sgst", 0) + 
+            get_num(note, "cess", 0)
+          {taxval, to_money(tax_amount)}
+        end
+
+      nt_num = note["nt_num"] || note["inum"]
+      ntty = note["ntty"] || note["typ"] || "C"
+
+      is_credit_note = ntty == "C"
+      desc = if is_credit_note, do: "Credit Note #{nt_num}", else: "Debit Note #{nt_num}"
+      ref = if is_credit_note, do: "CN-#{nt_num}", else: "DN-#{nt_num}"
+      transaction_type = if is_credit_note, do: :credit_note, else: :debit_note
+
+      entries =
+        if is_credit_note do
+          [
+            %{account_id: payable.id, entry_type: :debit, amount: total_value},
+            %{account_id: purchases.id, entry_type: :credit, amount: taxable_value},
+            %{account_id: gst_input.id, entry_type: :credit, amount: total_gst}
+          ]
+        else
+          [
+            %{account_id: purchases.id, entry_type: :debit, amount: taxable_value},
+            %{account_id: gst_input.id, entry_type: :debit, amount: total_gst},
+            %{account_id: payable.id, entry_type: :credit, amount: total_value}
+          ]
+        end
+
+      entries = Enum.map(entries, fn e -> 
+        Map.merge(e, %{
+          description: desc,
+          transaction_type: transaction_type,
+          reference_number: ref
+        })
+      end)
+
+      Accounting.create_journal(
+        org_id,
+        %{date: date, party_id: party.id},
+        entries
+      )
+    else
+      error ->
+        Logger.error("Purchase note failed: #{inspect(error)}")
         error
     end
   end
