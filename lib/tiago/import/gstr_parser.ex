@@ -15,6 +15,7 @@ defmodule Tiago.Import.GstrParser do
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :customer})
 
+        invoices = sort_docs(invoices, "inum")
         Enum.map(
           invoices,
           &create_sales_journal(org_id, &1, party, receivable, sales, gst_output)
@@ -26,6 +27,7 @@ defmodule Tiago.Import.GstrParser do
       |> Enum.flat_map(fn %{"ctin" => gstn, "nt" => notes} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :customer})
 
+        notes = sort_docs(notes, "nt_num")
         Enum.map(
           notes,
           &create_sales_note(org_id, &1, party, receivable, sales, gst_output)
@@ -45,6 +47,7 @@ defmodule Tiago.Import.GstrParser do
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
 
+        invoices = sort_docs(invoices, "inum")
         Enum.map(
           invoices,
           &create_purchase_journal(org_id, &1, party, payable, purchases, gst_input)
@@ -56,6 +59,7 @@ defmodule Tiago.Import.GstrParser do
       |> Enum.flat_map(fn %{"ctin" => gstn, "nt" => notes} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
 
+        notes = sort_docs(notes, "nt_num")
         Enum.map(
           notes,
           &create_purchase_note(org_id, &1, party, payable, purchases, gst_input)
@@ -308,6 +312,16 @@ defmodule Tiago.Import.GstrParser do
       account ->
         account
     end
+  end
+
+  defp sort_docs(docs, num_key) do
+    Enum.sort_by(docs, fn doc ->
+      val = Map.get(doc, num_key) || Map.get(doc, "inum") || ""
+      case Integer.parse(to_string(val)) do
+        {num, rest} -> {num, rest}
+        :error -> {0, val}
+      end
+    end)
   end
 
   defp count_results(results) do
