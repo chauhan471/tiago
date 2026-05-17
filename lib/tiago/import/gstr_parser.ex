@@ -30,7 +30,7 @@ defmodule Tiago.Import.GstrParser do
     gst_input = ensure_account!(org_id, :gst_input)
 
     results =
-      Map.get(json_data, "b2b", [])
+      (get_in(json_data, ["data", "docdata", "b2b"]) || [])
       |> Enum.flat_map(fn %{"ctin" => gstn, "inv" => invoices} ->
         {:ok, party} = Parties.get_or_create_party_by_gstn(org_id, gstn, %{type: :supplier})
 
@@ -87,9 +87,20 @@ defmodule Tiago.Import.GstrParser do
   end
 
   defp create_purchase_journal(org_id, invoice, party, payable, purchases, gst_input) do
-    with {:ok, date} <- DateParser.parse_date(invoice["idt"]),
+    with {:ok, date} <- DateParser.parse_date(invoice["dt"]),
          {:ok, total_value} <- parse_money(invoice["val"]) do
-      {taxable_value, total_gst} = calculate_tax_from_items(Map.get(invoice, "itms", []))
+      
+      # GSTR-2B JSON format stores these as flat fields on the invoice object, not in an itms array
+      taxable_value = to_money(get_num(invoice, "txval", 0))
+      
+      tax_amount = 
+        get_num(invoice, "igst", 0) + 
+        get_num(invoice, "cgst", 0) + 
+        get_num(invoice, "sgst", 0) + 
+        get_num(invoice, "cess", 0)
+        
+      total_gst = to_money(tax_amount)
+      
       inum = invoice["inum"]
 
       Accounting.create_journal(

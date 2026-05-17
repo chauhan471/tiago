@@ -89,6 +89,16 @@ defmodule Tiago.Parties do
         end)
 
       party ->
+        requested_type = Map.get(attrs, :type) || Map.get(attrs, "type")
+
+        party =
+          if requested_type && party.type != requested_type && party.type != :both_customer_and_supplier do
+            {:ok, updated_party} = update_party(party, %{type: :both_customer_and_supplier})
+            updated_party
+          else
+            party
+          end
+
         {:ok, party}
     end
   end
