@@ -23,6 +23,13 @@ defmodule Tiago.Parties do
   defp apply_filters(q, [_ | r]), do: apply_filters(q, r)
 
   def get_party!(id), do: Party |> Repo.get!(id) |> Repo.preload(:party_gstns)
+  
+  def get_party(id) do
+    case Repo.get(Party, id) do
+      nil -> nil
+      party -> Repo.preload(party, :party_gstns)
+    end
+  end
 
   def create_party(org_id, attrs) do
     # Convert all keys to strings to safely avoid mixed keys issues

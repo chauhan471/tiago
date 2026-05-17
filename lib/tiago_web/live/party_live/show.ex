@@ -5,8 +5,16 @@ defmodule TiagoWeb.PartyLive.Show do
   import TiagoWeb.Helpers
 
   def mount(%{"id" => id}, _session, socket) do
-    party = Parties.get_party!(id)
-    {:ok, assign(socket, page_title: party.name, party: party, editing_gstn: nil, merging: false)}
+    case Parties.get_party(id) do
+      nil ->
+        {:ok,
+         socket
+         |> put_flash(:info, "Party not found. It may have been merged or deleted.")
+         |> push_navigate(to: ~p"/parties")}
+
+      party ->
+        {:ok, assign(socket, page_title: party.name, party: party, editing_gstn: nil, merging: false)}
+    end
   end
 
   def handle_event("edit_gstn", %{"id" => id}, socket) do
