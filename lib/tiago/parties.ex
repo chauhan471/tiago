@@ -25,8 +25,14 @@ defmodule Tiago.Parties do
   def get_party!(id), do: Party |> Repo.get!(id) |> Repo.preload(:party_gstns)
 
   def create_party(org_id, attrs) do
+    # Convert all keys to strings to safely avoid mixed keys issues
+    attrs_with_org = 
+      attrs
+      |> Enum.into(%{}, fn {k, v} -> {to_string(k), v} end)
+      |> Map.put("organization_id", org_id)
+
     %Party{}
-    |> Party.changeset(Map.put(attrs, "organization_id", org_id))
+    |> Party.changeset(attrs_with_org)
     |> Repo.insert()
   end
 
