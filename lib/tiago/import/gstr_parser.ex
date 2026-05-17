@@ -322,13 +322,14 @@ defmodule Tiago.Import.GstrParser do
         _ -> date_str
       end
 
-      val = Map.get(doc, num_key) || Map.get(doc, "inum") || ""
-      {num, rest} = case Integer.parse(to_string(val)) do
-        {n, r} -> {n, r}
-        :error -> {0, val}
+      val = to_string(Map.get(doc, num_key) || Map.get(doc, "inum") || "")
+      
+      num = case Regex.scan(~r/\d+/, val) |> List.last() do
+        [digits] -> String.to_integer(digits)
+        _ -> 0
       end
 
-      {date_val, num, rest}
+      {date_val, num, val}
     end)
   end
 
