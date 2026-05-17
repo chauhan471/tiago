@@ -11,7 +11,7 @@ defmodule Tiago.Accounting do
     Account
     |> where([a], a.organization_id == ^org_id)
     |> apply_account_filters(opts)
-    |> order_by([a], asc: a.name)
+    |> order_by([a], asc: a.id)
     |> Repo.all()
   end
 
