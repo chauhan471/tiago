@@ -316,11 +316,19 @@ defmodule Tiago.Import.GstrParser do
 
   defp sort_docs(docs, num_key) do
     Enum.sort_by(docs, fn doc ->
+      date_str = doc["idt"] || doc["nt_dt"] || doc["dt"] || ""
+      date_val = case DateParser.parse_date(date_str) do
+        {:ok, date} -> Date.to_iso8601(date)
+        _ -> date_str
+      end
+
       val = Map.get(doc, num_key) || Map.get(doc, "inum") || ""
-      case Integer.parse(to_string(val)) do
-        {num, rest} -> {num, rest}
+      {num, rest} = case Integer.parse(to_string(val)) do
+        {n, r} -> {n, r}
         :error -> {0, val}
       end
+
+      {date_val, num, rest}
     end)
   end
 
