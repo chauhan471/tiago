@@ -197,4 +197,165 @@ defmodule Tiago.Accounting do
 
     {:ok, :balances_updated}
   end
+  # ── Manual Journal Entry ──
+
+  def create_manual_journal(org_id, party_id, params) do
+    type = params["transaction_type"]
+    date_str = params["date"] || ""
+    ref = String.trim(params["reference_number"] || "")
+    desc = String.trim(params["description"] || "")
+    total = parse_manual_money(params["amount"])
+    taxable = parse_manual_money(params["taxable_amount"])
+
+    with {:ok, date} <- Date.from_iso8601(date_str),
+         {:ok, total} <- validate_money(total),
+         {:ok, taxable} <- validate_money(taxable),
+         {:ok, gst} <- safe_money_sub(total, taxable) do
+      entries = build_manual_entries(org_id, type, total, taxable, gst, params)
+
+      case entries do
+        {:error, reason} ->
+          {:error, reason}
+
+        entries when is_list(entries) ->
+          create_journal(
+            org_id,
+            %{date: date, party_id: party_id},
+            Enum.map(entries, fn e ->
+              Map.merge(e, %{
+                description: if(desc == "", do: humanize_type(type), else: desc),
+                transaction_type: journal_transaction_type(type),
+                reference_number: if(ref == "", do: nil, else: ref)
+              })
+            end)
+          )
+      end
+    else
+      {:error, reason} -> {:error, reason}
+      :error -> {:error, "Invalid date format"}
+    end
+  end
+
+  defp build_manual_entries(org_id, type, total, taxable, gst, params) do
+    receivable = get_account_by_sub_type(org_id, :receivable)
+    payable = get_account_by_sub_type(org_id, :payable)
+    sales = get_account_by_sub_type(org_id, :sales)
+    purchases = get_account_by_sub_type(org_id, :purchases)
+    gst_output = get_account_by_sub_type(org_id, :gst_output)
+    gst_input = get_account_by_sub_type(org_id, :gst_input)
+
+    case type do
+      "sales_invoice" -> [
+        %{account_id: receivable.id, entry_type: :debit,  amount: total},
+        %{account_id: sales.id,      entry_type: :credit, amount: taxable},
+        %{account_id: gst_output.id, entry_type: :credit, amount: gst}
+      ]
+
+      "purchase_invoice" -> [
+        %{account_id: purchases.id, entry_type: :debit,  amount: taxable},
+        %{account_id: gst_input.id, entry_type: :debit,  amount: gst},
+        %{account_id: payable.id,   entry_type: :credit, amount: total}
+      ]
+
+      "sales_credit_note" -> [
+        %{account_id: sales.id,      entry_type: :debit,  amount: taxable},
+        %{account_id: gst_output.id, entry_type: :debit,  amount: gst},
+        %{account_id: receivable.id, entry_type: :credit, amount: total}
+      ]
+
+      "sales_debit_note" -> [
+        %{account_id: receivable.id, entry_type: :debit,  amount: total},
+        %{account_id: sales.id,      entry_type: :credit, amount: taxable},
+        %{account_id: gst_output.id, entry_type: :credit, amount: gst}
+      ]
+
+      "purchase_credit_note" -> [
+        %{account_id: payable.id,   entry_type: :debit,  amount: total},
+        %{account_id: purchases.id, entry_type: :credit, amount: taxable},
+        %{account_id: gst_input.id, entry_type: :credit, amount: gst}
+      ]
+
+      "purchase_debit_note" -> [
+        %{account_id: purchases.id, entry_type: :debit,  amount: taxable},
+        %{account_id: gst_input.id, entry_type: :debit,  amount: gst},
+        %{account_id: payable.id,   entry_type: :credit, amount: total}
+      ]
+
+      "cash_payment_to_supplier" ->
+        contra_id = parse_int(params["contra_account_id"])
+        if contra_id do
+          [
+            %{account_id: payable.id,  entry_type: :debit,  amount: total},
+            %{account_id: contra_id,   entry_type: :credit, amount: total}
+          ]
+        else
+          {:error, "Please select a bank/cash account"}
+        end
+
+      "cash_receipt_from_customer" ->
+        contra_id = parse_int(params["contra_account_id"])
+        if contra_id do
+          [
+            %{account_id: contra_id,      entry_type: :debit,  amount: total},
+            %{account_id: receivable.id,  entry_type: :credit, amount: total}
+          ]
+        else
+          {:error, "Please select a bank/cash account"}
+        end
+
+      _ ->
+        {:error, "Unknown transaction type"}
+    end
+  end
+
+  defp journal_transaction_type("sales_invoice"),        do: :invoice
+  defp journal_transaction_type("purchase_invoice"),     do: :invoice
+  defp journal_transaction_type("sales_credit_note"),    do: :credit_note
+  defp journal_transaction_type("purchase_credit_note"), do: :credit_note
+  defp journal_transaction_type("sales_debit_note"),     do: :debit_note
+  defp journal_transaction_type("purchase_debit_note"),  do: :debit_note
+  defp journal_transaction_type(_),                      do: :payment
+
+  defp humanize_type("sales_invoice"),        do: "Sales Invoice"
+  defp humanize_type("purchase_invoice"),     do: "Purchase Invoice"
+  defp humanize_type("sales_credit_note"),    do: "Sales Credit Note"
+  defp humanize_type("purchase_credit_note"), do: "Purchase Credit Note"
+  defp humanize_type("sales_debit_note"),     do: "Sales Debit Note"
+  defp humanize_type("purchase_debit_note"),  do: "Purchase Debit Note"
+  defp humanize_type("cash_payment_to_supplier"),     do: "Cash Payment"
+  defp humanize_type("cash_receipt_from_customer"),   do: "Cash Receipt"
+  defp humanize_type(t),                              do: t
+
+  defp parse_manual_money(nil), do: nil
+  defp parse_manual_money(""), do: nil
+  defp parse_manual_money(str) when is_binary(str) do
+    clean = String.replace(str, ",", "") |> String.trim()
+    case Decimal.parse(clean) do
+      {d, ""} -> Money.new!(:INR, Decimal.round(d, 2))
+      _ -> nil
+    end
+  end
+  defp parse_manual_money(n) when is_number(n), do: Money.new!(:INR, Decimal.new(n))
+
+  defp validate_money(nil), do: {:error, "Amount is required"}
+  defp validate_money(%Money{} = m) do
+    if Money.positive?(m), do: {:ok, m}, else: {:error, "Amount must be positive"}
+  end
+
+  defp safe_money_sub(total, taxable) do
+    gst = Money.sub!(total, taxable)
+    if Money.negative?(gst),
+      do: {:error, "Taxable amount cannot exceed total amount"},
+      else: {:ok, gst}
+  end
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+  defp parse_int(s) when is_binary(s) do
+    case Integer.parse(s) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+  defp parse_int(n) when is_integer(n), do: n
 end
